@@ -20,7 +20,7 @@ jobs:
 
       - name: Change base-tag
         # GitHub Pages hosts under /<repo-name>/, so we update the base href in index.html
-        run: sed -i 's/<base href="\/" \/>/<base href="\/CpuSimulator\/" \/>/g' release/wwwroot/index.html
+        run: sed -i 's/<base href="\/" \/>/<base href="\/CPU-Simulator\/" \/>/g' release/wwwroot/index.html
 
       - name: Add .nojekyll
         # Prevents GitHub Pages from ignoring files starting with underscores (critical for Blazor)
