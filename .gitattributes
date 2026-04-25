@@ -1,0 +1,16 @@
+# Set default behavior to handle line endings automatically.
+* text=auto
+
+# Explicitly set line endings to LF for shell scripts and specific web files
+*.sh text eol=lf
+*.razor text
+*.cs text
+*.html text
+*.css text
+*.js text
+*.json text
+
+# Denote all files that are truly binary and should not be modified.
+*.png binary
+*.jpg binary
+*.ico binary

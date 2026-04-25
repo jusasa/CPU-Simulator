@@ -1,0 +1,339 @@
+@page "/"
+@using CpuSim.Core
+
+<div class="container-fluid py-3">
+    <!-- Tab Navigation -->
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "cpu" ? "active" : "")" @onclick='() => activeTab = "cpu"'>CPU Simulator</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "adder" ? "active" : "")" @onclick='() => activeTab = "adder"'>8-Bit Adder</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "booth" ? "active" : "")" @onclick='() => activeTab = "booth"'>Booth Multiplier</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "shiftadd" ? "active" : "")" @onclick='() => activeTab = "shiftadd"'>Shift-Add Multiplier</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        @if (activeTab == "cpu")
+        {
+            <!-- Original CPU UI (Restructured) -->
+            <div class="row">
+                <div class="col-md-4">
+                    <h3>Assembly</h3>
+                    <textarea class="form-control mb-2" rows="8" @bind="assemblyCode" style="font-family: monospace; font-size: 0.8rem;"></textarea>
+                    <button class="btn btn-primary btn-sm w-100 mb-2" @onclick="Assemble">Assemble & Load</button>
+                    <div class="btn-group w-100 mb-3">
+                        <button class="btn btn-success btn-sm" @onclick="Run" disabled="@cpu.Halted">Run</button>
+                        <button class="btn btn-warning btn-sm" @onclick="MicroStep" disabled="@cpu.Halted">Step</button>
+                        <button class="btn btn-danger btn-sm" @onclick="Reset">Reset</button>
+                    </div>
+                    <div class="border p-2 bg-light small" style="height: 300px; overflow-y: auto;">
+                        @foreach (var log in stepLogs) { <div>@log</div> }
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <h3>Registers</h3>
+                    <table class="table table-sm table-bordered small mb-3">
+                        <tbody>
+                            @foreach (var reg in cpu.Registers)
+                            {
+                                <tr class="@(highlightedReg == reg.Key.ToString() ? "table-primary" : "")">
+                                    <td>@reg.Key</td>
+                                    <td>0x@(reg.Value.ToString("X2"))</td>
+                                    <td>@reg.Value</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <div class="data-path-grid border p-2 bg-dark text-white rounded small" style="min-height: 300px;">
+                         <!-- Reuse original bus/grid logic here simplified -->
+                         <div class="bus-segment @(IsBusActive ? "bus-active" : "")" style="grid-column: 2; grid-row: 1 / span 5; height: 100%;">BUS</div>
+                         <div class="p-1 border @GetHighlight("PC")" style="grid-column: 1; grid-row: 1;">PC</div>
+                         <div class="p-1 border @GetHighlight("MAR")" style="grid-column: 1; grid-row: 2;">MAR</div>
+                         <div class="p-1 border @GetHighlight("MEM")" style="grid-column: 1; grid-row: 3;">MEM</div>
+                         <div class="p-1 border @GetHighlight("MBR")" style="grid-column: 3; grid-row: 1;">MBR</div>
+                         <div class="p-1 border @GetHighlight("IR")" style="grid-column: 3; grid-row: 2;">IR</div>
+                         <div class="p-1 border @GetHighlight("SP")" style="grid-column: 3; grid-row: 3;">SP</div>
+                         <div class="p-1 border @GetHighlight("ALU")" style="grid-column: 1 / span 3; grid-row: 5;">ALU</div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <h3>RAM</h3>
+                    <div class="ram-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; height: 500px; overflow-y: auto;">
+                        @for (int i = 0; i < 256; i++)
+                        {
+                            int addr = i;
+                            <div class="p-1 border small @(cpu.Registers[RegisterType.PC] == addr ? "bg-warning" : "bg-light")">
+                                <span class="text-muted">@addr.ToString("X2")</span>:
+                                <input type="text" class="border-0 bg-transparent w-50" value="@cpu.Memory.Read((byte)addr).ToString("X2")" @onchange='(e) => cpu.Memory.Write((byte)addr, Convert.ToByte(e.Value?.ToString(), 16))'/>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        else if (activeTab == "adder")
+        {
+            <div class="row justify-content-center">
+                <div class="col-md-6">
+                    <div class="card shadow">
+                        <div class="card-header bg-primary text-white">8-Bit Ripple Carry Adder</div>
+                        <div class="card-body text-center">
+                            <div class="d-flex justify-content-center gap-3 mb-4">
+                                <div>
+                                    <label>Input A (-128 to 127)</label>
+                                    <input type="number" class="form-control" value="@((sbyte)adderInputA)" @onchange='(e) => { adderInputA = (byte)sbyte.Parse(e.Value?.ToString() ?? "0"); ResetAdder(); }' />
+                                    <div class="monospace mt-1">@ToBinary(adderInputA)</div>
+                                </div>
+                                <div class="fs-2 mt-4">+</div>
+                                <div>
+                                    <label>Input B (-128 to 127)</label>
+                                    <input type="number" class="form-control" value="@((sbyte)adderInputB)" @onchange='(e) => { adderInputB = (byte)sbyte.Parse(e.Value?.ToString() ?? "0"); ResetAdder(); }' />
+                                    <div class="monospace mt-1">@ToBinary(adderInputB)</div>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-warning mb-3" @onclick="StepAdder" disabled="@(alu.AdderStep >= 8)">Step Bit @alu.AdderStep</button>
+                            <button class="btn btn-outline-danger mb-3" @onclick="ResetAdder">Reset</button>
+
+                            <div class="adder-visualization d-flex justify-content-center flex-row-reverse gap-2 mb-4">
+                                @for (int i = 0; i < 8; i++)
+                                {
+                                    <div class="border p-2 @(alu.AdderStep == i ? "bg-info" : (alu.AdderStep > i ? "bg-light" : ""))">
+                                        <div class="small text-muted">Bit @i</div>
+                                        <div class="fw-bold">@((adderInputA >> i) & 1)</div>
+                                        <div class="fw-bold">@((adderInputB >> i) & 1)</div>
+                                        <hr class="my-1"/>
+                                        <div class="text-success fw-bold">@((alu.AdderSum >> i) & 1)</div>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="alert alert-info">
+                                <strong>Result:</strong> @alu.AdderSum (Binary: @ToBinary(alu.AdderSum)) <br/>
+                                <strong>Final Carry (Cout):</strong> @alu.AdderCarry (Total: @(alu.AdderSum + (alu.AdderCarry << 8)))
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (activeTab == "booth")
+        {
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+                    <div class="card shadow">
+                        <div class="card-header bg-dark text-white">Booth's Multiplication (Signed 8x8)</div>
+                        <div class="card-body">
+                            <div class="row mb-4 text-center">
+                                <div class="col">
+                                    <label>Multiplicand (M) [-128 to 127]</label>
+                                    <input type="number" class="form-control" value="@((sbyte)boothM)" @onchange='(e) => { boothM = (byte)sbyte.Parse(e.Value?.ToString() ?? "0"); ResetBooth(); }' />
+                                </div>
+                                <div class="col">
+                                    <label>Multiplier (Q) [-128 to 127]</label>
+                                    <input type="number" class="form-control" value="@((sbyte)boothQ)" @onchange='(e) => { boothQ = (byte)sbyte.Parse(e.Value?.ToString() ?? "0"); ResetBooth(); }' />
+                                </div>
+                                <div class="col-auto mt-4">
+                                    <button class="btn btn-warning" @onclick="StepBooth" disabled="@(alu.Step >= 8)">Step @alu.Step</button>
+                                    <button class="btn btn-outline-danger" @onclick="ResetBooth">Reset</button>
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered text-center monospace">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th>Step</th>
+                                            <th>AC (8-bit)</th>
+                                            <th>Q (8-bit)</th>
+                                            <th>Q-1</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr class="table-secondary">
+                                            <td>Init</td>
+                                            <td>00000000</td>
+                                            <td>@ToBinary(boothQ)</td>
+                                            <td>0</td>
+                                            <td>Initial State</td>
+                                        </tr>
+                                        @foreach (var log in boothHistory)
+                                        {
+                                            <tr>
+                                                <td>@log.Step</td>
+                                                <td>@ToBinary(log.AC)</td>
+                                                <td>@ToBinary(log.Q)</td>
+                                                <td>@log.Q_minus_1</td>
+                                                <td><small>@log.Action</small></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            @if (alu.Step >= 8)
+                            {
+                                <div class="alert alert-success mt-3">
+                                    <strong>Final 16-Bit Result:</strong> <br/>
+                                    Binary: [@ToBinary(alu.AC)] [@ToBinary(alu.Q)] <br/>
+                                    Decimal: @GetBoothResult()
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (activeTab == "shiftadd")
+        {
+            <div class="row justify-content-center">
+                <div class="col-md-6">
+                    <div class="card shadow">
+                        <div class="card-header bg-success text-white">Unsigned Shift-Add Multiplication</div>
+                        <div class="card-body text-center">
+                            <div class="d-flex justify-content-center gap-3 mb-4">
+                                <div>
+                                    <label>Multiplicand (0-255)</label>
+                                    <input type="number" class="form-control" value="@shiftAddM" @onchange='(e) => { shiftAddM = byte.Parse(e.Value?.ToString() ?? "0"); ResetShiftAdd(); }' />
+                                    <div class="monospace mt-1">@ToBinary(shiftAddM)</div>
+                                </div>
+                                <div class="fs-2 mt-4">×</div>
+                                <div>
+                                    <label>Multiplier (0-255)</label>
+                                    <input type="number" class="form-control" value="@shiftAddQ" @onchange='(e) => { shiftAddQ = byte.Parse(e.Value?.ToString() ?? "0"); ResetShiftAdd(); }' />
+                                    <div class="monospace mt-1">@ToBinary(shiftAddQ)</div>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-warning mb-3" @onclick="StepShiftAdd" disabled="@(alu.ShiftAddStep >= 8)">Step Bit @alu.ShiftAddStep</button>
+                            <button class="btn btn-outline-danger mb-3" @onclick="ResetShiftAdd">Reset</button>
+
+                            <div class="alert alert-secondary text-start monospace small">
+                                <strong>Action:</strong> @alu.ShiftAddAction <br/>
+                                <strong>Current Product (Hex):</strong> 0x@alu.ShiftAddProduct.ToString("X4") <br/>
+                                <strong>Current Product (Bin):</strong> @Convert.ToString(alu.ShiftAddProduct, 2).PadLeft(16, '0')
+                            </div>
+
+                            @if (alu.ShiftAddStep >= 8)
+                            {
+                                <div class="alert alert-success">
+                                    <strong>Final 16-Bit Result:</strong> @alu.ShiftAddProduct
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .monospace { font-family: 'Courier New', Courier, monospace; }
+    .nav-tabs .nav-link { cursor: pointer; }
+    .ram-grid div { min-width: 80px; }
+    .data-path-grid { display: grid; grid-template-columns: 1fr 40px 1fr; gap: 5px; text-align: center; }
+    .bus-segment { background: #444; border: 2px solid #666; display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; }
+    .bus-active { background: #007bff; color: white; border-color: #00d4ff; box-shadow: 0 0 10px #007bff; }
+    .highlight-transfer { background-color: #007bff !important; color: white !important; }
+</style>
+
+@code {
+    private string activeTab = "cpu";
+    
+    // CPU Logic
+    private Cpu cpu = new Cpu();
+    private Assembler assembler = new Assembler();
+    private string assemblyCode = "LOD R0, 0x10\nLOD R1, 0x11\nMUL R0, R1\nSTR 0x12, R0\nHLT";
+    private List<string> stepLogs = new List<string>();
+    private string? highlightedReg;
+    private string? highlightedSrc;
+    private IEnumerator<CpuMicroStep>? currentSteps;
+
+    // Adder Logic
+    private Alu alu = new Alu();
+    private byte adderInputA = 10;
+    private byte adderInputB = 25;
+
+    // Booth Logic
+    private byte boothM = 7;
+    private byte boothQ = 3;
+    private List<(int Step, byte AC, byte Q, byte Q_minus_1, string Action)> boothHistory = new();
+
+    private void Assemble() {
+        try {
+            var bytes = assembler.Assemble(assemblyCode);
+            cpu.Memory.Load(bytes);
+            cpu.Registers[RegisterType.PC] = 0;
+            stepLogs.Clear();
+            stepLogs.Add("Assembly Loaded.");
+        } catch (Exception ex) { stepLogs.Add("Error: " + ex.Message); }
+    }
+
+    private async Task MicroStep() {
+        if (currentSteps == null) currentSteps = cpu.ExecuteInstruction().GetEnumerator();
+        if (currentSteps.MoveNext()) {
+            var step = currentSteps.Current;
+            stepLogs.Insert(0, step.Description);
+            highlightedReg = step.Destination;
+            highlightedSrc = step.Source;
+            StateHasChanged();
+            await Task.Delay(100);
+        } else {
+            currentSteps = null;
+            if (!cpu.Halted) await MicroStep();
+        }
+    }
+
+    private async Task Run() {
+        while (!cpu.Halted) {
+            await MicroStep();
+            await Task.Delay(50);
+        }
+    }
+
+    private void Reset() {
+        cpu = new Cpu();
+        currentSteps = null;
+        stepLogs.Clear();
+        highlightedReg = null;
+    }
+
+    // Adder Methods
+    private void ResetAdder() => alu.ResetAdder(adderInputA, adderInputB);
+    private void StepAdder() => alu.AdderStepBit(out _, out _, out _, out _, out _);
+
+    // Booth Methods
+    private void ResetBooth() {
+        alu.ResetBooth(boothM, boothQ);
+        boothHistory.Clear();
+    }
+    private void StepBooth() {
+        if (alu.BoothStep()) {
+            boothHistory.Add((alu.Step, alu.AC, alu.Q, alu.Q_minus_1, alu.LastAction));
+        }
+    }
+    private int GetBoothResult() {
+        short res = unchecked((short)((alu.AC << 8) | alu.Q));
+        return res;
+    }
+
+    // Shift-Add Methods
+    private void ResetShiftAdd() => alu.ResetShiftAdd(shiftAddM, shiftAddQ);
+    private void StepShiftAdd() => alu.ShiftAddStepIteration();
+
+    // Helpers
+    private string ToBinary(byte val) => Convert.ToString(val, 2).PadLeft(8, '0');
+    private string GetHighlight(string name) => (highlightedReg == name || highlightedSrc == name) ? "highlight-transfer" : "";
+    private bool IsBusActive => !string.IsNullOrEmpty(highlightedSrc) && !string.IsNullOrEmpty(highlightedReg) && highlightedSrc != highlightedReg;
+}
