@@ -270,6 +270,10 @@
     private byte boothQ = 3;
     private List<(int Step, byte AC, byte Q, byte Q_minus_1, string Action)> boothHistory = new();
 
+    // Shift-Add Logic
+    private byte shiftAddM = 10;
+    private byte shiftAddQ = 5;
+
     private void Assemble() {
         try {
             var bytes = assembler.Assemble(assemblyCode);
